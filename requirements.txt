@@ -1,0 +1,14 @@
+fastapi==0.116.1
+uvicorn==0.35.0
+sqlalchemy==2.0.43
+psycopg2-binary==2.9.10
+redis==6.4.0
+httpx==0.28.1
+tenacity==9.1.2
+pydantic==2.11.9
+pydantic-settings==2.11.0
+python-dotenv==1.1.1
+
+pytest==8.4.2
+fakeredis==2.31.1
+respx==0.22.0

@@ -1,0 +1,97 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: invoicing-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: invoicing
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d invoicing"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: invoicing-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  provider-ar:
+    build:
+      context: .
+    container_name: provider-ar
+    command: uvicorn mocks.provider_ar.main:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8001/health').read()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  provider-br:
+    build:
+      context: .
+    container_name: provider-br
+    command: uvicorn mocks.provider_br.main:app --host 0.0.0.0 --port 8002
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8002/health').read()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: .
+    container_name: invoicing-app
+    environment:
+      API_KEY: change-me
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/invoicing
+      REDIS_URL: redis://redis:6379/0
+      PROVIDER_AR_BASE_URL: http://provider-ar:8001
+      PROVIDER_BR_BASE_URL: http://provider-br:8002
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      provider-ar:
+        condition: service_healthy
+      provider-br:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10

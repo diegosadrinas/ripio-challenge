@@ -1,0 +1,98 @@
+{
+  "info": {
+    "name": "Multi-Country Invoicing API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "api_key",
+      "value": "change-me"
+    },
+    {
+      "key": "invoice_id",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Create Invoice",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "X-Idempotency-Key",
+            "value": "idem-postman-001"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"entity_id\": \"customer-123\",\n  \"amount\": 1500.0,\n  \"currency\": \"ARS\",\n  \"country_code\": \"AR\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/invoices",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "invoices"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Invoice",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/invoices/{{invoice_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "invoices",
+            "{{invoice_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "List Providers",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/providers",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "providers"
+          ]
+        }
+      }
+    }
+  ]
+}
