@@ -124,3 +124,44 @@ def test_idempotency_conflict_when_payload_changes(client):
     assert first.status_code == 201
     assert second.status_code == 409
     assert second.json()["code"] == "IDEMPOTENCY_KEY_CONFLICT"
+
+
+def test_metrics_endpoint_reports_http_aggregates(client):
+    payload = {
+        "entity_id": "entity-ar-metrics",
+        "amount": "20.00",
+        "currency": "ARS",
+        "country_code": "AR",
+    }
+
+    with respx.mock(assert_all_called=True) as mock:
+        mock.post("http://provider-ar.test/invoices").mock(
+            return_value=httpx.Response(
+                200,
+                json={"status": "ok", "reference": "AR-entity-ar-metrics"},
+            )
+        )
+
+        create_response = client.post("/invoices", json=payload, headers=_headers("idem-metrics-1"))
+
+    assert create_response.status_code == 201
+
+    metrics_response = client.get("/metrics", headers={"X-API-Key": "test-api-key"})
+    assert metrics_response.status_code == 200
+
+    body = metrics_response.json()
+    assert body["requests_total"] >= 1
+    assert body["requests_by_status_family"]["2xx"] >= 1
+
+    invoices_metric = next(
+        (
+            item
+            for item in body["request_metrics"]
+            if item["method"] == "POST"
+            and item["path"] == "/invoices"
+            and item["status_code"] == 201
+        ),
+        None,
+    )
+    assert invoices_metric is not None
+    assert invoices_metric["count"] == 1

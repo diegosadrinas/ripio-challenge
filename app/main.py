@@ -13,10 +13,12 @@ from app.config import Settings, get_settings
 from app.db import Database, get_db
 from app.errors import ServiceError
 from app.logging_config import configure_logging
+from app.metrics import InMemoryMetricsCollector
 from app.middleware import correlation_id_middleware, request_logging_middleware
 from app.providers.registry import ProviderRegistry
 from app.redis_client import build_redis_client
 from app.schemas import (
+    AppMetricsResponse,
     ErrorResponse,
     InvoiceCreateRequest,
     InvoiceCreateResponse,
@@ -62,6 +64,7 @@ def create_app(settings: Settings | None = None, redis_client: Redis | None = No
     app.state.settings = runtime_settings
     app.state.db = db
     app.state.redis = redis_client or build_redis_client(runtime_settings.redis_url)
+    app.state.metrics = InMemoryMetricsCollector()
     app.state.provider_registry = ProviderRegistry(runtime_settings)
     app.state.invoice_service = InvoiceService(
         settings=runtime_settings,
@@ -112,6 +115,16 @@ def create_app(settings: Settings | None = None, redis_client: Redis | None = No
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get(
+        "/metrics",
+        response_model=AppMetricsResponse,
+        responses={401: {"model": ErrorResponse}},
+        dependencies=[Depends(require_api_key)],
+    )
+    def get_metrics(request: Request) -> AppMetricsResponse:
+        metrics_payload = request.app.state.metrics.snapshot()
+        return AppMetricsResponse(**metrics_payload)
 
     @app.post(
         "/invoices",

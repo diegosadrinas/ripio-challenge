@@ -73,6 +73,23 @@ class ProvidersListResponse(BaseModel):
     providers: list[ProviderInfoResponse]
 
 
+class RequestMetricItem(BaseModel):
+    method: str
+    path: str
+    status_code: int
+    count: int
+    total_duration_ms: int
+    avg_duration_ms: float
+
+
+class AppMetricsResponse(BaseModel):
+    generated_at: datetime
+    uptime_seconds: int
+    requests_total: int
+    requests_by_status_family: dict[str, int]
+    request_metrics: list[RequestMetricItem]
+
+
 class ErrorResponse(BaseModel):
     code: str
     message: str
