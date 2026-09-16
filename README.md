@@ -152,22 +152,28 @@ Cobertura implementada:
 
 ## 11. Decisiones tecnicas y trade-offs
 
-1. PostgreSQL + Redis en lugar de SQLite puro.
+1. PostgreSQL + Redis en vez de quedarme en SQLite.
 
-- Elegido por consistencia de constraints y lock/idempotencia realista.
-- Trade-off: mas componentes para levantar.
+Fui por esta combinacion porque queria consistencia real en datos y un manejo serio de idempotencia/concurrencia.
+SQLite me servia para demo rapida, pero para este problema preferi algo mas cercano a un escenario productivo.
 
-2. Monolito modular con puertos/adaptadores en lugar de microservicios.
+Trade-off: hay mas piezas para levantar y operar.
 
-- Elegido para simplicidad operacional en challenge y extensibilidad clara.
-- Trade-off: menor aislamiento de despliegue por componente.
+2. Monolito modular con puertos/adaptadores en vez de microservicios.
 
-3. `pending` en fallos ambiguos en lugar de marcar `failed` siempre.
+Aca priorice foco: separar bien responsabilidades sin sobredisenar.
+Queria que sumar un proveedor nuevo sea claro y no implique tocar todo el core.
 
-- Elegido para evitar doble facturacion en escenarios inciertos.
-- Trade-off: requiere reconciliacion posterior.
+Trade-off: no tengo el aislamiento de despliegue que tendria en microservicios.
 
-4. Auth minima por API Key en lugar de OIDC/JWT completo.
+3. Usar `pending` cuando el resultado con el proveedor es ambiguo.
 
-- Elegido para demostrar criterio de seguridad sin complejidad excesiva.
-- Trade-off: no cubre IAM empresarial.
+Esta fue una decision muy consciente: ante timeout/5xx prefiero admitir incertidumbre antes que mentir con un `failed` y arriesgar doble facturacion en un reintento.
+
+Trade-off: despues hay que reconciliar ese estado.
+
+4. Auth minima por API Key en esta etapa.
+
+No quise vender humo con un IAM enterprise a medias. Para el alcance del challenge preferi una capa simple, explicable y funcional.
+
+Trade-off: no cubre escenarios avanzados (roles, scopes, federacion, rotacion compleja).
