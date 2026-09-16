@@ -38,6 +38,7 @@ flowchart LR
 - `POST /invoices`
 - `GET /invoices/{invoice_id}`
 - `GET /providers`
+- `GET /metrics`
 - `GET /health`
 
 Autenticacion minima por header `X-API-Key`.
@@ -61,6 +62,12 @@ curl http://localhost:8000/health
 - OpenAPI JSON: `http://localhost:8000/openapi.json`
 - Swagger UI: `http://localhost:8000/docs`
 - Coleccion Postman: [postman_collection.json](postman_collection.json)
+
+El endpoint `GET /metrics` requiere `X-API-Key` y devuelve metricas agregadas en memoria del proceso:
+
+- total de requests
+- conteo por familia de status (`2xx`, `4xx`, `5xx`, etc.)
+- latencia agregada por `(method, path, status_code)`
 
 Opcionalmente, podes crear `.env` desde `.env.example` para sobreescribir valores por defecto.
 
@@ -97,10 +104,26 @@ Configuracion:
 
 - `LOG_LEVEL=INFO` (default)
 
+Como ver logs:
+
+- con Docker Compose: `docker compose logs -f app`
+- en local con uvicorn: los logs salen por stdout en formato JSON
+
 Ejemplo de linea de log:
 
 ```json
-{"timestamp":"2026-09-16T12:00:00+00:00","level":"INFO","logger":"app.request","message":"request_completed","event":"request_completed","correlation_id":"f2b...","method":"POST","path":"/invoices","status_code":201,"duration_ms":132}
+{
+    "timestamp": "2026-09-16T12:00:00+00:00",
+    "level": "INFO",
+    "logger": "app.request",
+    "message": "request_completed",
+    "event": "request_completed",
+    "correlation_id": "f2b...",
+    "method": "POST",
+    "path": "/invoices",
+    "status_code": 201,
+    "duration_ms": 132
+}
 ```
 
 ## 9. Como agregar un nuevo proveedor/pais
@@ -130,17 +153,21 @@ Cobertura implementada:
 ## 11. Decisiones tecnicas y trade-offs
 
 1. PostgreSQL + Redis en lugar de SQLite puro.
+
 - Elegido por consistencia de constraints y lock/idempotencia realista.
 - Trade-off: mas componentes para levantar.
 
 2. Monolito modular con puertos/adaptadores en lugar de microservicios.
+
 - Elegido para simplicidad operacional en challenge y extensibilidad clara.
 - Trade-off: menor aislamiento de despliegue por componente.
 
 3. `pending` en fallos ambiguos en lugar de marcar `failed` siempre.
+
 - Elegido para evitar doble facturacion en escenarios inciertos.
 - Trade-off: requiere reconciliacion posterior.
 
 4. Auth minima por API Key en lugar de OIDC/JWT completo.
+
 - Elegido para demostrar criterio de seguridad sin complejidad excesiva.
 - Trade-off: no cubre IAM empresarial.
