@@ -173,8 +173,14 @@ Esta fue una decision muy consciente: ante timeout/5xx prefiero admitir incertid
 
 Trade-off: despues hay que reconciliar ese estado.
 
-4. Auth minima por API Key en esta etapa.
+4. Mantener la emision en flujo sincrono (request/response) en esta version.
 
-No quise vender humo con un IAM enterprise a medias. Para el alcance del challenge preferi una capa simple, explicable y funcional.
+A proposito no meti colas ni workers async en esta entrega. Para el challenge preferi priorizar trazabilidad e idempotencia de punta a punta en un flujo facil de seguir y demostrar.
+
+Trade-off: bajo carga alta, este enfoque escala peor que un modelo asincronico con cola y workers dedicados.
+
+5. Auth minima por API Key en esta etapa.
+
+No quise hacer una sobre-ingeniería con un IAM enterprise a medias. Para el alcance del challenge preferi una capa simple, explicable y funcional.
 
 Trade-off: no cubre escenarios avanzados (roles, scopes, federacion, rotacion compleja).
