@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 from redis import Redis
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -65,6 +66,11 @@ def _invoice_response(invoice: Invoice) -> dict[str, Any]:
 
 def _short_hash(value: str) -> str:
     return value[:12]
+
+
+def _is_idempotency_unique_collision(error: IntegrityError) -> bool:
+    message = str(error).lower()
+    return "unique" in message and "idempotency" in message and "key_hash" in message
 
 
 class InvoiceService:
@@ -153,21 +159,25 @@ class InvoiceService:
             )
         return invoice
 
-    def resolve_stale_pending(self, *, db: Session, invoice: Invoice) -> None:
-        if invoice.status != InvoiceStatus.PENDING:
-            return
-
+    def reconcile_stale_pending_invoices(self, *, db: Session, batch_size: int = 200) -> int:
         cutoff = _now_utc() - timedelta(minutes=self.settings.pending_reconciliation_minutes)
-        created_at = invoice.created_at
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
 
-        if created_at <= cutoff:
+        pending_invoices = db.scalars(
+            select(Invoice).where(Invoice.status == InvoiceStatus.PENDING).order_by(Invoice.created_at).limit(batch_size)
+        ).all()
+
+        updated = 0
+        for invoice in pending_invoices:
+            created_at = invoice.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+
+            if created_at > cutoff:
+                continue
+
             invoice.status = InvoiceStatus.FAILED
             invoice.status_reason = "RECONCILIATION_TIMEOUT"
             db.add(invoice)
-            db.commit()
-            db.refresh(invoice)
             logger.warning(
                 "invoice_reconciliation_timeout",
                 extra={
@@ -176,6 +186,12 @@ class InvoiceService:
                     "status": invoice.status,
                 },
             )
+            updated += 1
+
+        if updated:
+            db.commit()
+
+        return updated
 
     def _serve_existing_record_or_in_progress(
         self,
@@ -314,7 +330,26 @@ class InvoiceService:
             state=IdempotencyState.IN_PROGRESS,
         )
         db.add(record)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            if _is_idempotency_unique_collision(exc):
+                logger.warning(
+                    "idempotency_db_collision_replay",
+                    extra={
+                        "event": "idempotency_db_collision_replay",
+                        "correlation_id": correlation_id,
+                        "idempotency_key_hash": _short_hash(key_hash),
+                    },
+                )
+                return self._serve_existing_record_or_in_progress(
+                    db=db,
+                    key_hash=key_hash,
+                    request_fingerprint=request_fingerprint,
+                )
+            raise
+
         db.refresh(invoice)
         db.refresh(record)
 
@@ -458,7 +493,6 @@ class InvoiceService:
 
     def get_invoice_detail(self, *, db: Session, invoice_id: str) -> dict[str, Any]:
         invoice = self.get_invoice(db=db, invoice_id=invoice_id)
-        self.resolve_stale_pending(db=db, invoice=invoice)
 
         attempts = db.scalars(
             select(InvoiceAttempt).where(InvoiceAttempt.invoice_id == invoice.id).order_by(InvoiceAttempt.attempt_number)

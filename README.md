@@ -77,6 +77,7 @@ Opcionalmente, podes crear `.env` desde `.env.example` para sobreescribir valore
 - Reintento con misma key y mismo payload: retorna misma factura sin nuevo llamado externo.
 - Reintento con misma key y payload distinto: `409 IDEMPOTENCY_KEY_CONFLICT`.
 - `pending` se usa solo en resultados ambiguos del proveedor (timeout/red/5xx agotando retries).
+- La reconciliacion de `pending` se ejecuta fuera del request de lectura (background poll configurable).
 
 ## 7. Auditoria
 

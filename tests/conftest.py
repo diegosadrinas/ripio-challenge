@@ -26,6 +26,7 @@ def settings(tmp_path: Path) -> Settings:
         retry_cap_ms=50,
         idempotency_lock_ttl_seconds=30,
         pending_reconciliation_minutes=15,
+        pending_reconciliation_poll_seconds=0,
     )
 
 

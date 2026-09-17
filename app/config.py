@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     idempotency_record_ttl_hours: int = Field(default=24, ge=1, le=168)
 
     pending_reconciliation_minutes: int = Field(default=15, ge=1, le=1440)
+    pending_reconciliation_poll_seconds: int = Field(default=30, ge=0, le=3600)
 
     model_config = SettingsConfigDict(
         env_file=".env",

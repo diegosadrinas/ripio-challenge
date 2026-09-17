@@ -1,5 +1,10 @@
+from datetime import datetime, timedelta, timezone
+
 import httpx
 import respx
+from sqlalchemy.exc import IntegrityError
+
+from app.models import Invoice, InvoiceStatus
 
 
 def _headers(idempotency_key: str) -> dict[str, str]:
@@ -165,3 +170,101 @@ def test_metrics_endpoint_reports_http_aggregates(client):
     )
     assert invoices_metric is not None
     assert invoices_metric["count"] == 1
+
+
+def test_idempotency_db_collision_replays_existing_record(client, monkeypatch):
+    service = client.app.state.invoice_service
+    provider = client.app.state.provider_registry.resolve("AR")
+
+    request_payload = {
+        "entity_id": "entity-ar-collision",
+        "amount": "20.00",
+        "currency": "ARS",
+        "country_code": "AR",
+    }
+
+    expected_payload = {
+        "invoice_id": "existing-invoice",
+        "status": "issued",
+        "provider_used": "provider-ar",
+        "external_reference": "AR-existing",
+        "status_reason": "ISSUED",
+    }
+
+    db_session = client.app.state.db.session()
+    try:
+        commit_calls = {"count": 0}
+
+        original_commit = db_session.commit
+
+        def flaky_commit():
+            commit_calls["count"] += 1
+            if commit_calls["count"] == 1:
+                raise IntegrityError(
+                    statement="insert",
+                    params={},
+                    orig=Exception("UNIQUE constraint failed: idempotency_records.idempotency_key_hash"),
+                )
+            return original_commit()
+
+        def replay_existing(*, db, key_hash, request_fingerprint):
+            assert db is db_session
+            assert key_hash == "fake-key-hash"
+            assert request_fingerprint == "fake-fingerprint"
+            return expected_payload, 201
+
+        monkeypatch.setattr(db_session, "commit", flaky_commit)
+        monkeypatch.setattr(service, "_serve_existing_record_or_in_progress", replay_existing)
+
+        result, status_code = service._issue_invoice_under_lock(
+            db=db_session,
+            provider=provider,
+            key_hash="fake-key-hash",
+            request_fingerprint="fake-fingerprint",
+            request_payload=request_payload,
+            correlation_id="test-correlation-id",
+        )
+
+        assert status_code == 201
+        assert result == expected_payload
+        assert commit_calls["count"] == 1
+    finally:
+        db_session.close()
+
+
+def test_get_invoice_detail_does_not_reconcile_pending(client):
+    db_session = client.app.state.db.session()
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=2)
+
+    invoice = Invoice(
+        entity_id="entity-stale",
+        amount=10,
+        currency="ARS",
+        country_code="AR",
+        provider_used="provider-ar",
+        status=InvoiceStatus.PENDING,
+        status_reason="PROVIDER_UNCERTAIN_RESULT",
+        external_reference=None,
+        created_at=stale_time,
+        updated_at=stale_time,
+    )
+
+    try:
+        db_session.add(invoice)
+        db_session.commit()
+        invoice_id = invoice.id
+    finally:
+        db_session.close()
+
+    response = client.get(f"/invoices/{invoice_id}", headers={"X-API-Key": "test-api-key"})
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+
+    verify_session = client.app.state.db.session()
+    try:
+        persisted = verify_session.get(Invoice, invoice_id)
+        assert persisted is not None
+        assert persisted.status == InvoiceStatus.PENDING
+        assert persisted.status_reason == "PROVIDER_UNCERTAIN_RESULT"
+    finally:
+        verify_session.close()

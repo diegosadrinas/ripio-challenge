@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 import logging
 from typing import Any
 
@@ -33,6 +34,37 @@ def _correlation_id_from_request(request: Request) -> str:
     return getattr(request.state, "correlation_id", "unknown")
 
 
+async def _pending_reconciliation_loop(app: FastAPI, app_logger: logging.Logger) -> None:
+    interval = app.state.settings.pending_reconciliation_poll_seconds
+    if interval <= 0:
+        return
+
+    invoice_service: InvoiceService = app.state.invoice_service
+    while True:
+        db_session = app.state.db.session()
+        try:
+            updated = invoice_service.reconcile_stale_pending_invoices(db=db_session)
+            if updated > 0:
+                app_logger.info(
+                    "pending_reconciliation_batch",
+                    extra={
+                        "event": "pending_reconciliation_batch",
+                        "status": "updated",
+                    },
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            app_logger.exception(
+                "pending_reconciliation_failed",
+                extra={"event": "pending_reconciliation_failed"},
+            )
+        finally:
+            db_session.close()
+
+        await asyncio.sleep(interval)
+
+
 def create_app(settings: Settings | None = None, redis_client: Redis | None = None) -> FastAPI:
     runtime_settings = settings or get_settings()
     configure_logging(
@@ -46,7 +78,18 @@ def create_app(settings: Settings | None = None, redis_client: Redis | None = No
     async def lifespan(app: FastAPI):
         app_logger.info("app_starting", extra={"event": "app_starting"})
         app.state.db.init_models()
+
+        reconciliation_task: asyncio.Task[None] | None = None
+        if app.state.settings.pending_reconciliation_poll_seconds > 0:
+            reconciliation_task = asyncio.create_task(_pending_reconciliation_loop(app, app_logger))
+
         yield
+
+        if reconciliation_task:
+            reconciliation_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await reconciliation_task
+
         app_logger.info("app_stopping", extra={"event": "app_stopping"})
 
     app = FastAPI(
